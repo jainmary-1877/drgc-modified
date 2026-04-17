@@ -24,10 +24,12 @@ class FewShotRetriever:
             return
         
         # Initialize embeddings with HuggingFace model (local)
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=settings.embedding_model
+        from langchain_ollama import OllamaEmbeddings
+
+        self.embeddings = OllamaEmbeddings(
+            model=settings.embedding_model,
+            base_url=settings.ollama_base_url
         )
-        
         # Initialize vector store
         persist_directory = settings.vector_store_path
         os.makedirs(persist_directory, exist_ok=True)

@@ -1,6 +1,6 @@
 """Planner Agent: Breaks down complex questions into logical steps."""
 
-from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from loguru import logger
 from core.state import AgentState
@@ -9,15 +9,14 @@ from config import settings
 
 class PlannerAgent:
     """Decomposes natural language questions into structured logical plans."""
-    
+
     def __init__(self):
-        self.llm = ChatGroq(
-            model=settings.groq_model_reasoning,
-            temperature=settings.groq_temperature,
-            groq_api_key=settings.groq_api_key
+        self.llm = ChatOllama(
+            model=settings.ollama_model_reasoning,
+            temperature=settings.ollama_temperature,
+            base_url=settings.ollama_base_url
         )
-        
-        # System prompt for logical planning
+
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a data architect specializing in SQL query planning.
 
@@ -40,23 +39,22 @@ Plan:
 4. Order by average value descending"""),
             ("user", "{question}")
         ])
-        
+
         self.chain = self.prompt | self.llm
-    
+
     def plan(self, state: AgentState) -> dict:
         """Generate a logical plan for the question."""
         logger.info("PLANNER: Decomposing question into logical steps")
         question = state["question"]
-        
+
         try:
             response = self.chain.invoke({"question": question})
             plan = response.content
-            
-            # Extract numbered steps from the plan
+
             import re
             steps = re.findall(r'^\d+\..*$', plan, re.MULTILINE)
             logger.info(f"Generated plan with {len(steps)} steps")
-            
+
             return {
                 "plan": plan,
                 "plan_steps": steps,
@@ -68,7 +66,6 @@ Plan:
             return {"error": f"Planning failed: {str(e)}", "should_retry": False}
 
 
-# Node function for LangGraph
 def planner_node(state: AgentState) -> dict:
     """LangGraph node wrapper for PlannerAgent."""
     agent = PlannerAgent()

@@ -8,7 +8,7 @@ import hashlib
 import json
 from diskcache import Cache
 from loguru import logger
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_ollama import OllamaEmbeddings
 import numpy as np
 from config import settings
 
@@ -29,10 +29,10 @@ class SemanticCache:
         
         # Initialize disk cache
         self.cache = Cache("./cache/semantic_cache")
-        
-        # Initialize embedding model with HuggingFace (local)
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=settings.embedding_model
+
+        self.embeddings = OllamaEmbeddings(
+            model=settings.embedding_model,
+            base_url=settings.ollama_base_url
         )
         
         logger.info(f"Semantic cache initialized (threshold: {self.threshold})")

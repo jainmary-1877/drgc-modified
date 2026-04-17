@@ -1,7 +1,7 @@
 """Agents module initialization."""
 
 from .planner import PlannerAgent, planner_node
-from .retriever import SchemaLinkerAgent, schema_linker_node
+from .retriever_fk import SchemaLinkerAgent, schema_linker_node
 from .generator import SQLGeneratorAgent, generator_node
 from .critic import CriticAgent, executor_node, reflector_node
 
