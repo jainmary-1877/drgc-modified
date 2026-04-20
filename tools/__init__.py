@@ -1,12 +1,11 @@
 """Tools module initialization."""
 
 from .cache import SemanticCache, semantic_cache
-from .vector_store import FewShotRetriever, few_shot_retriever, seed_examples
+from .vector_store import FewShotRetriever, few_shot_retriever
 
 __all__ = [
     "SemanticCache",
     "semantic_cache",
     "FewShotRetriever",
     "few_shot_retriever",
-    "seed_examples"
 ]

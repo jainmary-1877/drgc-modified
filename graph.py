@@ -6,6 +6,8 @@ Implements the DRGC (Decomposition-Retrieval-Generation-Correction) framework.
 from typing import Literal
 from langgraph.graph import StateGraph, END
 from loguru import logger
+from tools.vector_store import auto_seed_if_empty
+auto_seed_if_empty()  # runs once on startup, skips if already seeded
 import time
 
 from core.state import AgentState

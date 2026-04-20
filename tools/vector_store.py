@@ -153,56 +153,23 @@ class FewShotRetriever:
 few_shot_retriever = FewShotRetriever()
 
 
-def seed_examples():
+def auto_seed_if_empty():
     """
-    Seed the vector store with common SQL patterns.
-    This should be called during setup with your domain-specific examples.
+    Called on startup. Seeds examples only if vector store is empty.
+    Prevents duplicate seeding on every restart.
     """
     if not settings.enable_dynamic_few_shot:
         return
-    
-    default_examples = [
-        {
-            "question": "What is the total revenue for each product category?",
-            "sql": """SELECT 
-    category,
-    SUM(price * quantity) as total_revenue
-FROM products p
-JOIN sales s ON p.product_id = s.product_id
-GROUP BY category
-ORDER BY total_revenue DESC""",
-            "explanation": "Join products with sales and aggregate by category",
-            "complexity": "simple"
-        },
-        {
-            "question": "Find customers who made purchases in the last 30 days but not in the previous 30 days",
-            "sql": """SELECT DISTINCT c.customer_id, c.name
-FROM customers c
-JOIN orders o ON c.customer_id = o.customer_id
-WHERE o.order_date >= CURRENT_DATE - INTERVAL '30 days'
-  AND c.customer_id NOT IN (
-    SELECT customer_id 
-    FROM orders 
-    WHERE order_date >= CURRENT_DATE - INTERVAL '60 days'
-      AND order_date < CURRENT_DATE - INTERVAL '30 days'
-  )""",
-            "explanation": "Use subquery to exclude customers from previous period",
-            "complexity": "complex"
-        },
-        {
-            "question": "Calculate the 3-month rolling average of sales",
-            "sql": """SELECT 
-    DATE_TRUNC('month', sale_date) as month,
-    AVG(sale_amount) OVER (
-        ORDER BY DATE_TRUNC('month', sale_date)
-        ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
-    ) as rolling_3month_avg
-FROM sales
-ORDER BY month""",
-            "explanation": "Use window function with ROWS BETWEEN for rolling average",
-            "complexity": "complex"
-        }
-    ]
-    
-    few_shot_retriever.add_examples_batch(default_examples)
-    logger.info(f"Seeded {len(default_examples)} default examples")
+
+    try:
+        results = few_shot_retriever.retrieve("test", k=1)
+        if not results:
+            logger.info("Vector store empty — auto-seeding examples...")
+            # Import here to avoid circular imports
+            import subprocess, sys
+            subprocess.run([sys.executable, "seedcustomexamples.py"], check=True)
+            logger.info("Auto-seed complete")
+        else:
+            logger.info(f"Vector store already populated — skipping auto-seed")
+    except Exception as e:
+        logger.warning(f"Auto-seed check failed: {e}")

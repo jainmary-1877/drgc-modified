@@ -9,7 +9,11 @@ from graph import run_agent
 from tools import seed_examples, semantic_cache, few_shot_retriever
 from core.database import db_manager
 from core.data_loader import DataLoader
+from seedcustomexamples import auto_seed
 
+if 'seeded' not in st.session_state:
+    auto_seed()
+    st.session_state['seeded'] = True
 # Page configuration
 st.set_page_config(
     page_title="Text-to-SQL Agent",
