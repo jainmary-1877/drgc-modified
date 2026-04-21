@@ -48,6 +48,63 @@ SCHEMA_ANNOTATIONS = {
     "fb_page": """
 -- fb_page has NO name/label/title column.
 -- Page labels are in fb_translation_json.translations JSONB only.
+""",
+"inspection_report": """
+-- inspection_report columns:
+-- DATE COLUMNS: submitted_on (timestamptz), created_on (timestamp),
+--               closed_on (timestamptz), start_date_time (timestamp),
+--               end_date_time (timestamp)
+-- NEVER use: report_date, inspection_date, date — these do NOT exist
+-- SCORE COLUMNS: inspection_score (numeric), gp_score (numeric)
+-- HOURS: total_inspection_hours (numeric) — may be NULL in some rows
+-- ID: inspection_id (human readable string like '2026/01/...')
+-- FLAGS: deleted (boolean) — always filter deleted = false
+--        active (boolean)
+-- STATUS: DRAFT, SUBMITTED, CLOSED, UNDER_REVIEW, RETURN_FOR_MODIFICATION
+-- Always exclude DRAFT when querying scores or hours
+-- UUID FKs: inspector_user_id → users, facility_id → facility,
+--           client_id → client, project_id → project,
+--           inspection_type_id → inspection_type,
+--           cycle_id → inspection_cycle
+""",
+"inspection_corrective_action": """
+-- EXACT table name: inspection_corrective_action
+-- NEVER use: corrective_actions, ca_table, actions
+-- FK to inspection_report: ica.inspection_id = ir.id
+-- To reach client: inspection_corrective_action -> inspection_report -> client
+-- To reach facility: inspection_corrective_action -> inspection_report -> facility
+-- To reach inspector: inspection_corrective_action -> inspection_report -> users
+-- status enums: OPEN, CLOSED, OVERDUE, CLOSE_WITH_DEFERRED
+-- cost columns: capex, opex
+-- date columns: target_close_out_date, completed_on, close_on
+-- NEVER use: corrective_actions.client_id — no such column exists
+""",
+"inspection_report": """
+-- EXACT table name: inspection_report
+-- NEVER use: inspections, reports, inspection_reports
+-- inspection_report IS THE HUB — all other tables connect through it
+-- score columns: inspection_score, gp_score - NEVER use rating, score, grade
+-- date columns: submitted_on, created_on, closed_on, start_date_time, end_date_time
+-- NEVER use: report_date, inspection_date, date
+-- hours column: total_inspection_hours - NEVER use hours, duration
+-- flags: deleted (boolean) - always filter deleted = false
+-- status: DRAFT, SUBMITTED, CLOSED, UNDER_REVIEW, RETURN_FOR_MODIFICATION
+""",
+"client": """
+-- EXACT table name: client (NOT clients)
+-- columns: id, name
+-- reach via: inspection_report.client_id -> client.id
+""",
+"facility": """
+-- EXACT table name: facility (NOT facilities)
+-- columns: id, name
+-- reach via: inspection_report.facility_id -> facility.id
+""",
+"users": """
+-- EXACT table name: users
+-- name expression: first_name || ' ' || last_name
+-- reach via: inspection_report.inspector_user_id -> users.id
+-- NEVER show raw UUID — always JOIN and show name
 """
 }
 
@@ -220,6 +277,24 @@ Return comma-separated table names only:""")
                 ({"form", "name"},      ["fb_forms", "fb_translation_json"]),
                 ({"form", "element"},   ["fb_forms", "fb_translation_json"]),
                 ({"module"},            ["fb_modules"]),
+
+                ({"form", "question"},      ["fb_forms", "fb_translation_json"]),
+                ({"form", "name"},          ["fb_forms", "fb_translation_json"]),
+                ({"module"},                ["fb_modules"]),
+                # Inspection domain
+                ({"inspection", "score"},   ["inspection_report", "inspection_type", "users"]),
+                ({"inspection", "hours"},   ["inspection_report", "users"]),
+                ({"corrective", "action"},  ["inspection_corrective_action", "inspection_report"]),
+                ({"corrective", "client"},  ["inspection_corrective_action", "inspection_report", "client"]),
+                ({"corrective", "facility"},["inspection_corrective_action", "inspection_report", "facility"]),
+                ({"inspector", "score"},    ["inspection_report", "users"]),
+                ({"inspector", "hours"},    ["inspection_report", "users"]),
+                ({"client", "inspection"},  ["inspection_report", "client"]),
+                ({"facility", "inspection"},["inspection_report", "facility"]),
+                ({"inspection", "type"},    ["inspection_report", "inspection_type"]),
+                ({"inspection", "cycle"},   ["inspection_report", "inspection_cycle"]),
+                ({"inspection", "schedule"},["inspection_schedule"]),
+
             ]
             question_words = set(question.lower().split())
             forced_tables = []

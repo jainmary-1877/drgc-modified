@@ -143,14 +143,101 @@ class FewShotRetriever:
     
     def clear(self):
         """Clear all examples from vector store."""
-        if self.enabled:
-            # Delete and recreate collection
+        if not self.enabled:
+            return
+        try:
+            self.vectorstore.reset_collection()
+            logger.info("Vector store cleared and reset")
+        except Exception:
+            # Fallback: delete and recreate
             self.vectorstore.delete_collection()
-            logger.info("Vector store cleared")
+            self.vectorstore = Chroma(
+                collection_name=settings.chroma_collection_name,
+                embedding_function=self.embeddings,
+                persist_directory=settings.vector_store_path
+            )
+            logger.info("Vector store recreated")
+class ModuleRetriever:
+    """
+    Separate ChromaDB collection purely for fb_module semantic search.
+    Keeps module names isolated from SQL few-shot examples.
+    """
 
+    def __init__(self):
+        self.enabled = settings.enable_dynamic_few_shot
 
-# Global retriever instance
+        if not self.enabled:
+            logger.info("Module retriever disabled")
+            return
+
+        from langchain_ollama import OllamaEmbeddings
+        self.embeddings = OllamaEmbeddings(
+            model=settings.embedding_model,
+            base_url=settings.ollama_base_url
+        )
+
+        persist_directory = settings.vector_store_path
+        os.makedirs(persist_directory, exist_ok=True)
+
+        # Separate collection from sql_examples
+        self.vectorstore = Chroma(
+            collection_name="fb_modules",
+            embedding_function=self.embeddings,
+            persist_directory=persist_directory
+        )
+        logger.info("Module retriever initialized")
+
+    def add_modules(self, modules: list):
+        """modules = [{'id': 'uuid', 'name': 'module name'}, ...]"""
+        if not self.enabled:
+            return
+        docs = []
+        for m in modules:
+            doc = Document(
+                page_content=m["name"],
+                metadata={"module_id": m["id"]}
+            )
+            docs.append(doc)
+        self.vectorstore.add_documents(docs)
+        logger.info(f"Indexed {len(docs)} modules")
+
+    def search(self, query: str, k: int = 1) -> list:
+        """Returns list of {name, module_id, score} sorted by similarity."""
+        if not self.enabled:
+            return []
+        try:
+            results = self.vectorstore.similarity_search_with_score(query, k=k)
+            return [
+                {
+                    "name": doc.page_content,
+                    "module_id": doc.metadata["module_id"],
+                    "score": score
+                }
+                for doc, score in results
+            ]
+        except Exception as e:
+            logger.error(f"Module search error: {e}")
+            return []
+
+    def clear(self):
+        """Clear module collection."""
+        if not self.enabled:
+            return
+        try:
+            self.vectorstore.reset_collection()
+            logger.info("Module collection cleared and reset")
+        except Exception:
+            self.vectorstore.delete_collection()
+            self.vectorstore = Chroma(
+                collection_name="fb_modules",
+                embedding_function=self.embeddings,
+                persist_directory=settings.vector_store_path
+            )
+            logger.info("Module collection recreated")
+# Global instances
 few_shot_retriever = FewShotRetriever()
+module_retriever = ModuleRetriever()
+
 
 
 def auto_seed_if_empty():

@@ -21,17 +21,23 @@ class CriticAgent:
         )
 
         self.reflection_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a SQL debugging expert. A query failed and you must fix it.
+    ("system", """You are a SQL debugging expert. A query failed and you must fix it.
+
+CRITICAL — inspection_report VALID columns:
+- Score: inspection_score, gp_score — NEVER use rating, score, grade
+- Date: submitted_on, created_on, closed_on, start_date_time, end_date_time
+- Hours: total_inspection_hours
+- NEVER use: report_date, inspection_date, rating, score, grade
 
 Follow STRICT steps:
-
 1. Identify the exact error type from the error message
-2. Locate the issue in the SQL query
+2. Locate the issue in the SQL query  
 3. Cross-check with schema_context
 4. Apply minimal correction
 5. Ensure SQL is valid PostgreSQL syntax
 
-Think step-by-step internally before answering.
+IMPORTANT:
+Think step-by-step internally, but output ONLY the final corrected SQL query.
 
 LOGICAL PLAN (MUST FOLLOW):
 Use this plan to guide your correction. Do NOT violate it.

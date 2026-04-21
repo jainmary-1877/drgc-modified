@@ -6,8 +6,6 @@ Implements the DRGC (Decomposition-Retrieval-Generation-Correction) framework.
 from typing import Literal
 from langgraph.graph import StateGraph, END
 from loguru import logger
-from tools.vector_store import auto_seed_if_empty
-auto_seed_if_empty()  # runs once on startup, skips if already seeded
 import time
 
 from core.state import AgentState
@@ -16,12 +14,15 @@ from agents import (
     schema_linker_node,
     generator_node,
     executor_node,
-    reflector_node
+    reflector_node,
+    validator_node
 )
 from tools import semantic_cache, few_shot_retriever
+from tools.vector_store import auto_seed_if_empty
 from config import settings
 
-
+# Auto-seed once on startup if vector store is empty
+auto_seed_if_empty()
 def should_continue(state: AgentState) -> Literal["reflect", "end", "cache_success"]:
     """
     Determines the next step in the workflow after query execution.
@@ -163,7 +164,8 @@ def build_graph() -> StateGraph:
     workflow.add_node("schema_retriever", schema_linker_node)  # Find relevant tables
     workflow.add_node("generator", generator_node)  # Generate SQL
     workflow.add_node("executor", executor_node)  # Execute and validate
-    workflow.add_node("reflector", reflector_node)  # Fix errors if any
+    workflow.add_node("reflector", reflector_node)  # Fix SQL errors
+    workflow.add_node("validator", validator_node)   # Pre-execution SQL validation if any
     workflow.add_node("cache_result", cache_result_node)  # Store successful result
     
     # === DEFINE WORKFLOW ===
@@ -186,7 +188,8 @@ def build_graph() -> StateGraph:
     workflow.add_edge("planner", "retrieve_few_shot")
     workflow.add_edge("retrieve_few_shot", "schema_retriever")
     workflow.add_edge("schema_retriever", "generator")
-    workflow.add_edge("generator", "executor")
+    workflow.add_edge("generator", "validator")
+    workflow.add_edge("validator", "executor")
     
     # After execution, decide: success (cache), error (reflect), or give up (end)
     workflow.add_conditional_edges(
@@ -202,7 +205,7 @@ def build_graph() -> StateGraph:
     workflow.add_edge("cache_result", END)
     
     # After reflection, retry execution
-    workflow.add_edge("reflector", "executor")
+    workflow.add_edge("reflector", "validator")
     
     logger.info("Graph built successfully")
     return workflow

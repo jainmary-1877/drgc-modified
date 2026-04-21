@@ -1,8 +1,6 @@
 """
 Seed domain-specific SQL examples into ChromaDB.
-Built using schema_introspector.py knowledge — enum values, FK paths, business rules.
 Run: python3 seedcustomexamples.py --force
-Add new failures here and reseed whenever agent gets a query wrong.
 """
 
 from tools.vector_store import few_shot_retriever
@@ -191,38 +189,150 @@ ORDER BY question_count DESC;""",
     },
 
     # ═══════════════════════════════════════════════════════════
-    # INSPECTION REPORT — scores
-    # From introspector: status enums = DRAFT, SUBMITTED, CLOSED,
-    # UNDER_REVIEW, RETURN_FOR_MODIFICATION
-    # Business rule: always exclude DRAFT when querying scores
+    # INSPECTION REPORT
+    # VALID columns: inspection_score, gp_score, submitted_on,
+    # start_date_time, end_date_time, closed_on, created_on,
+    # total_inspection_hours, inspection_id, status, deleted,
+    # active, inspector_user_id, facility_id, client_id,
+    # project_id, inspection_type_id, cycle_id, schedule_id
+    # INVALID columns: report_date, inspection_date, rating,
+    #                  score, date, report_id
     # ═══════════════════════════════════════════════════════════
     {
         "question": "what is the average inspection score",
         "sql": """SELECT AVG(inspection_score) AS avg_score
 FROM inspection_report
-WHERE status != 'DRAFT';""",
-        "explanation": "Always exclude DRAFT when querying inspection_score",
+WHERE status != 'DRAFT'
+  AND deleted = false
+  AND inspection_score IS NOT NULL;""",
+        "explanation": "Always exclude DRAFT and deleted, check IS NOT NULL",
         "complexity": "simple"
     },
     {
+    "question": "list the inspector which has the lowest average score",
+    "sql": """SELECT u.first_name || ' ' || u.last_name AS inspector_name,
+       AVG(ir.inspection_score) AS avg_score
+    FROM inspection_report ir
+    JOIN users u ON ir.inspector_user_id = u.id
+    WHERE ir.status != 'DRAFT'
+    AND ir.deleted = false
+    AND ir.inspection_score IS NOT NULL
+    GROUP BY u.first_name, u.last_name
+    ORDER BY avg_score ASC
+    LIMIT 1;""",
+        "explanation": "Score column is inspection_score never score or rating",
+        "complexity": "medium"
+    },
+    {
         "question": "show the last 10 inspection scores",
-        "sql": """SELECT inspection_score, status, submitted_on
+        "sql": """SELECT inspection_id, inspection_score, status, submitted_on
 FROM inspection_report
 WHERE status != 'DRAFT'
+  AND deleted = false
+  AND inspection_score IS NOT NULL
 ORDER BY submitted_on DESC
 LIMIT 10;""",
-        "explanation": "Exclude DRAFT, order by submitted_on DESC",
+        "explanation": "submitted_on is the date column, exclude DRAFT and deleted",
         "complexity": "simple"
     },
     {
         "question": "average inspection score by type",
-        "sql": """SELECT it.name AS type_name, AVG(ir.inspection_score) AS avg_score
+        "sql": """SELECT it.name AS type_name,
+       AVG(ir.inspection_score) AS avg_score
 FROM inspection_report ir
 JOIN inspection_type it ON ir.inspection_type_id = it.id
 WHERE ir.status != 'DRAFT'
+  AND ir.deleted = false
+  AND ir.inspection_score IS NOT NULL
 GROUP BY it.name
 ORDER BY avg_score DESC;""",
-        "explanation": "Join inspection_type for names, exclude DRAFT",
+        "explanation": "Join inspection_type for names, exclude DRAFT and deleted",
+        "complexity": "medium"
+    },
+    {
+        "question": "average gp score by inspection type",
+        "sql": """SELECT it.name AS type_name,
+       AVG(ir.gp_score) AS avg_gp_score
+FROM inspection_report ir
+JOIN inspection_type it ON ir.inspection_type_id = it.id
+WHERE ir.status != 'DRAFT'
+  AND ir.deleted = false
+  AND ir.gp_score IS NOT NULL
+GROUP BY it.name
+ORDER BY avg_gp_score DESC;""",
+        "explanation": "gp_score is separate from inspection_score, both numeric",
+        "complexity": "medium"
+    },
+    {
+        "question": "which inspector has the lowest average inspection score",
+        "sql": """SELECT u.first_name || ' ' || u.last_name AS inspector_name,
+       AVG(ir.inspection_score) AS avg_score
+FROM inspection_report ir
+JOIN users u ON ir.inspector_user_id = u.id
+WHERE ir.status != 'DRAFT'
+  AND ir.deleted = false
+  AND ir.inspection_score IS NOT NULL
+GROUP BY u.first_name, u.last_name
+ORDER BY avg_score ASC
+LIMIT 1;""",
+        "explanation": "Score column is inspection_score never rating. ASC for lowest.",
+        "complexity": "medium"
+    },
+    {
+    "question": "which client has the most corrective actions",
+    "sql": """SELECT cl.name AS client_name,
+       COUNT(ica.id) AS corrective_action_count
+    FROM inspection_corrective_action ica
+    JOIN inspection_report ir ON ica.inspection_id = ir.id
+    JOIN client cl ON ir.client_id = cl.id
+    GROUP BY cl.name
+    ORDER BY corrective_action_count DESC
+    LIMIT 1;""",
+        "explanation": "Count rows in inspection_corrective_action not inspection_report. Must JOIN through inspection_report hub to reach client.",
+        "complexity": "complex"
+    },
+    {
+    "question": "which client has the most inspections",
+    "sql": """SELECT cl.name AS client_name,
+       COUNT(ir.id) AS inspection_count
+    FROM inspection_report ir
+    JOIN client cl ON ir.client_id = cl.id
+    WHERE ir.status != 'DRAFT'
+    AND ir.deleted = false
+    GROUP BY cl.name
+    ORDER BY inspection_count DESC
+    LIMIT 1;""",
+        "explanation": "Count inspection_report rows per client. Different from corrective actions count.",
+        "complexity": "medium"
+    },
+    {
+        "question": "which inspector has the highest average inspection score",
+        "sql": """SELECT u.first_name || ' ' || u.last_name AS inspector_name,
+       AVG(ir.inspection_score) AS avg_score
+FROM inspection_report ir
+JOIN users u ON ir.inspector_user_id = u.id
+WHERE ir.status != 'DRAFT'
+  AND ir.deleted = false
+  AND ir.inspection_score IS NOT NULL
+GROUP BY u.first_name, u.last_name
+ORDER BY avg_score DESC
+LIMIT 1;""",
+        "explanation": "Score column is inspection_score never rating. DESC for highest.",
+        "complexity": "medium"
+    },
+    {
+        "question": "average inspection score per inspector",
+        "sql": """SELECT u.first_name || ' ' || u.last_name AS inspector_name,
+       AVG(ir.inspection_score) AS avg_score,
+       COUNT(*) AS inspection_count
+FROM inspection_report ir
+JOIN users u ON ir.inspector_user_id = u.id
+WHERE ir.status != 'DRAFT'
+  AND ir.deleted = false
+  AND ir.inspection_score IS NOT NULL
+GROUP BY u.first_name, u.last_name
+ORDER BY avg_score DESC;""",
+        "explanation": "inspection_score is the score column, never rating or score",
         "complexity": "medium"
     },
     {
@@ -232,10 +342,76 @@ ORDER BY avg_score DESC;""",
 FROM inspection_report ir
 JOIN users u ON ir.inspector_user_id = u.id
 WHERE ir.status != 'DRAFT'
+  AND ir.deleted = false
+  AND ir.total_inspection_hours IS NOT NULL
 GROUP BY u.first_name, u.last_name
 ORDER BY total_hours DESC
 LIMIT 1;""",
+        "explanation": "total_inspection_hours is the hours column, join users for name",
+        "complexity": "medium"
+    },
+    {
+        "question": "total inspection hours for the last month",
+        "sql": """SELECT SUM(total_inspection_hours) AS total_hours
+FROM inspection_report
+WHERE submitted_on >= date_trunc('month', CURRENT_DATE - INTERVAL '1 month')
+  AND submitted_on < date_trunc('month', CURRENT_DATE)
+  AND status != 'DRAFT'
+  AND deleted = false
+  AND total_inspection_hours IS NOT NULL;""",
+        "explanation": "submitted_on is the date column, never report_date",
+        "complexity": "simple"
+    },
+    {
+        "question": "total inspection hours this month",
+        "sql": """SELECT SUM(total_inspection_hours) AS total_hours
+FROM inspection_report
+WHERE submitted_on >= date_trunc('month', CURRENT_DATE)
+  AND status != 'DRAFT'
+  AND deleted = false
+  AND total_inspection_hours IS NOT NULL;""",
+        "explanation": "submitted_on for date filtering, exclude DRAFT and deleted",
+        "complexity": "simple"
+    },
+    {
+        "question": "total inspection hours by inspector",
+        "sql": """SELECT u.first_name || ' ' || u.last_name AS inspector_name,
+       SUM(ir.total_inspection_hours) AS total_hours
+FROM inspection_report ir
+JOIN users u ON ir.inspector_user_id = u.id
+WHERE ir.status != 'DRAFT'
+  AND ir.deleted = false
+  AND ir.total_inspection_hours IS NOT NULL
+GROUP BY u.first_name, u.last_name
+ORDER BY total_hours DESC;""",
         "explanation": "Join users to resolve inspector UUID, never show raw UUID",
+        "complexity": "medium"
+    },
+    {
+        "question": "average inspection hours per inspector",
+        "sql": """SELECT u.first_name || ' ' || u.last_name AS inspector_name,
+       AVG(ir.total_inspection_hours) AS avg_hours
+FROM inspection_report ir
+JOIN users u ON ir.inspector_user_id = u.id
+WHERE ir.status != 'DRAFT'
+  AND ir.deleted = false
+  AND ir.total_inspection_hours IS NOT NULL
+GROUP BY u.first_name, u.last_name
+ORDER BY avg_hours DESC;""",
+        "explanation": "total_inspection_hours is the hours column",
+        "complexity": "medium"
+    },
+    {
+        "question": "average inspection duration in hours",
+        "sql": """SELECT AVG(
+    EXTRACT(EPOCH FROM (end_date_time - start_date_time)) / 3600
+) AS avg_duration_hours
+FROM inspection_report
+WHERE start_date_time IS NOT NULL
+  AND end_date_time IS NOT NULL
+  AND status != 'DRAFT'
+  AND deleted = false;""",
+        "explanation": "Use start_date_time and end_date_time for duration",
         "complexity": "medium"
     },
     {
@@ -243,6 +419,7 @@ LIMIT 1;""",
         "sql": """SELECT it.name AS type_name, COUNT(*) AS inspection_count
 FROM inspection_report ir
 JOIN inspection_type it ON ir.inspection_type_id = it.id
+WHERE ir.deleted = false
 GROUP BY it.name
 ORDER BY inspection_count DESC;""",
         "explanation": "Join inspection_type for readable names",
@@ -253,9 +430,10 @@ ORDER BY inspection_count DESC;""",
         "sql": """SELECT inspection_id, inspection_score, submitted_on
 FROM inspection_report
 WHERE status = 'CLOSED'
+  AND deleted = false
 ORDER BY submitted_on DESC
 LIMIT 100;""",
-        "explanation": "completed/done/finished = status CLOSED per vocabulary rules",
+        "explanation": "completed = status CLOSED, always filter deleted",
         "complexity": "simple"
     },
     {
@@ -263,9 +441,10 @@ LIMIT 100;""",
         "sql": """SELECT inspection_id, inspection_score, submitted_on
 FROM inspection_report
 WHERE status = 'UNDER_REVIEW'
+  AND deleted = false
 ORDER BY submitted_on DESC
 LIMIT 100;""",
-        "explanation": "pending review/under review/awaiting review = UNDER_REVIEW",
+        "explanation": "under review = UNDER_REVIEW status",
         "complexity": "simple"
     },
     {
@@ -273,28 +452,129 @@ LIMIT 100;""",
         "sql": """SELECT inspection_id, inspection_score, submitted_on
 FROM inspection_report
 WHERE status = 'RETURN_FOR_MODIFICATION'
+  AND deleted = false
 ORDER BY submitted_on DESC
 LIMIT 100;""",
-        "explanation": "returned/sent back/rejected = RETURN_FOR_MODIFICATION",
+        "explanation": "returned = RETURN_FOR_MODIFICATION",
         "complexity": "simple"
     },
     {
+        "question": "inspections closed this month",
+        "sql": """SELECT COUNT(*) AS closed_count
+FROM inspection_report
+WHERE status = 'CLOSED'
+  AND closed_on >= date_trunc('month', CURRENT_DATE)
+  AND deleted = false;""",
+        "explanation": "closed_on is the closure timestamp column",
+        "complexity": "simple"
+    },
+    {
+        "question": "inspections submitted in the last 7 days",
+        "sql": """SELECT inspection_id, inspection_score, status, submitted_on
+FROM inspection_report
+WHERE submitted_on >= CURRENT_DATE - INTERVAL '7 days'
+  AND status != 'DRAFT'
+  AND deleted = false
+ORDER BY submitted_on DESC
+LIMIT 100;""",
+        "explanation": "submitted_on is the submission date column",
+        "complexity": "simple"
+    },
+    {
+        "question": "inspections submitted in the last 30 days",
+        "sql": """SELECT inspection_id, inspection_score, status, submitted_on
+FROM inspection_report
+WHERE submitted_on >= CURRENT_DATE - INTERVAL '30 days'
+  AND status != 'DRAFT'
+  AND deleted = false
+ORDER BY submitted_on DESC
+LIMIT 100;""",
+        "explanation": "submitted_on for date range, exclude DRAFT and deleted",
+        "complexity": "simple"
+    },
+    {
+        "question": "list inspections by facility",
+        "sql": """SELECT fac.name AS facility_name,
+       COUNT(*) AS inspection_count,
+       AVG(ir.inspection_score) AS avg_score
+FROM inspection_report ir
+JOIN facility fac ON ir.facility_id = fac.id
+WHERE ir.status != 'DRAFT'
+  AND ir.deleted = false
+GROUP BY fac.name
+ORDER BY inspection_count DESC;""",
+        "explanation": "Join facility to resolve UUID, inspection_report is the hub",
+        "complexity": "medium"
+    },
+    {
+        "question": "inspections by project",
+        "sql": """SELECT proj.name AS project_name,
+       COUNT(*) AS inspection_count
+FROM inspection_report ir
+JOIN project proj ON ir.project_id = proj.id
+WHERE ir.deleted = false
+GROUP BY proj.name
+ORDER BY inspection_count DESC;""",
+        "explanation": "Join project table to resolve project_id UUID",
+        "complexity": "medium"
+    },
+    {
+        "question": "inspections by client",
+        "sql": """SELECT cl.name AS client_name,
+       COUNT(*) AS inspection_count,
+       AVG(ir.inspection_score) AS avg_score
+FROM inspection_report ir
+JOIN client cl ON ir.client_id = cl.id
+WHERE ir.status != 'DRAFT'
+  AND ir.deleted = false
+GROUP BY cl.name
+ORDER BY inspection_count DESC;""",
+        "explanation": "Join client table to resolve client_id UUID",
+        "complexity": "medium"
+    },
+    {
         "question": "inspections at a specific facility",
-        "sql": """SELECT ir.inspection_id, ir.inspection_score, ir.status, fac.name AS facility_name
+        "sql": """SELECT ir.inspection_id, ir.inspection_score, ir.status,
+       fac.name AS facility_name
 FROM inspection_report ir
 JOIN facility fac ON ir.facility_id = fac.id
 WHERE fac.name ILIKE '%FACILITY_NAME%'
   AND ir.status != 'DRAFT'
+  AND ir.deleted = false
 ORDER BY ir.submitted_on DESC
 LIMIT 100;""",
-        "explanation": "Join facility to resolve UUID, use ILIKE, exclude DRAFT",
+        "explanation": "Join facility, use ILIKE, exclude DRAFT and deleted",
         "complexity": "medium"
     },
     {
+        "question": "how many inspections were deleted",
+        "sql": """SELECT COUNT(*) AS deleted_count
+FROM inspection_report
+WHERE deleted = true;""",
+        "explanation": "deleted is a boolean column on inspection_report",
+        "complexity": "simple"
+    },
+    {
+        "question": "list inspections with both inspection score and gp score",
+        "sql": """SELECT inspection_id, inspection_score, gp_score,
+       status, submitted_on
+FROM inspection_report
+WHERE inspection_score IS NOT NULL
+  AND gp_score IS NOT NULL
+  AND status != 'DRAFT'
+  AND deleted = false
+ORDER BY submitted_on DESC
+LIMIT 100;""",
+        "explanation": "Both inspection_score and gp_score are separate numeric columns",
+        "complexity": "simple"
+    },
+    {
         "question": "inspections per cycle",
-        "sql": """SELECT ic.id, ic.start_date, ic.end_date, COUNT(ir.id) AS report_count
+        "sql": """SELECT ic.id, ic.start_date, ic.end_date,
+       COUNT(ir.id) AS report_count
 FROM inspection_cycle ic
 LEFT JOIN inspection_report ir ON ir.cycle_id = ic.id
+  AND ir.deleted = false
 GROUP BY ic.id, ic.start_date, ic.end_date
 ORDER BY ic.start_date DESC;""",
         "explanation": "LEFT JOIN to include cycles with zero inspections",
@@ -302,22 +582,22 @@ ORDER BY ic.start_date DESC;""",
     },
     {
         "question": "cycles for safety inspections",
-        "sql": """SELECT ic.id, ic.start_date, ic.end_date, COUNT(ir.id) AS report_count
+        "sql": """SELECT ic.id, ic.start_date, ic.end_date,
+       COUNT(ir.id) AS report_count
 FROM inspection_cycle ic
 LEFT JOIN inspection_report ir ON ir.cycle_id = ic.id
+  AND ir.deleted = false
 JOIN inspection_type it ON ir.inspection_type_id = it.id
 WHERE it.name ILIKE '%safety%'
 GROUP BY ic.id, ic.start_date, ic.end_date
 ORDER BY ic.start_date DESC;""",
-        "explanation": "Type names are on inspection_type table, go through inspection_report",
+        "explanation": "Type names on inspection_type, go through inspection_report",
         "complexity": "complex"
     },
 
     # ═══════════════════════════════════════════════════════════
     # CORRECTIVE ACTIONS
-    # From introspector: status enums = OPEN, CLOSED, OVERDUE,
-    # CLOSE_WITH_DEFERRED
-    # Vocabulary: pending/outstanding = NOT IN (CLOSED, CLOSE_WITH_DEFERRED)
+    # status enums: OPEN, CLOSED, OVERDUE, CLOSE_WITH_DEFERRED
     # ═══════════════════════════════════════════════════════════
     {
         "question": "show all open corrective actions",
@@ -326,7 +606,7 @@ ORDER BY ic.start_date DESC;""",
 FROM inspection_corrective_action
 WHERE status = 'OPEN'
 LIMIT 100;""",
-        "explanation": "open = status OPEN exactly per vocabulary rules",
+        "explanation": "open = status OPEN exactly",
         "complexity": "simple"
     },
     {
@@ -336,7 +616,7 @@ LIMIT 100;""",
 FROM inspection_corrective_action
 WHERE status NOT IN ('CLOSED', 'CLOSE_WITH_DEFERRED')
 LIMIT 100;""",
-        "explanation": "pending/outstanding/unresolved = NOT IN CLOSED and CLOSE_WITH_DEFERRED",
+        "explanation": "pending = NOT IN CLOSED and CLOSE_WITH_DEFERRED",
         "complexity": "simple"
     },
     {
@@ -354,7 +634,7 @@ LIMIT 100;""",
         "question": "total capex and opex for corrective actions",
         "sql": """SELECT SUM(capex) AS total_capex, SUM(opex) AS total_opex
 FROM inspection_corrective_action;""",
-        "explanation": "Simple SUM aggregation on cost columns",
+        "explanation": "Simple SUM on cost columns",
         "complexity": "simple"
     },
     {
@@ -372,7 +652,7 @@ LIMIT 100;""",
         "sql": """SELECT COUNT(*) AS closed_count
 FROM inspection_corrective_action
 WHERE status IN ('CLOSED', 'CLOSE_WITH_DEFERRED');""",
-        "explanation": "closed = CLOSED or CLOSE_WITH_DEFERRED per vocabulary",
+        "explanation": "closed = CLOSED or CLOSE_WITH_DEFERRED",
         "complexity": "simple"
     },
     {
@@ -392,7 +672,7 @@ JOIN inspection_report ir ON ica.inspection_id = ir.id
 JOIN facility fac ON ir.facility_id = fac.id
 WHERE fac.name ILIKE '%FACILITY_NAME%'
 LIMIT 100;""",
-        "explanation": "Go through inspection_report to reach facility — it is the hub table",
+        "explanation": "Go through inspection_report hub to reach facility",
         "complexity": "complex"
     },
     {
@@ -410,31 +690,30 @@ LIMIT 100;""",
 
     # ═══════════════════════════════════════════════════════════
     # INSPECTION SCHEDULE
-    # From introspector: status enums = PENDING, ONGOING,
-    # COMPLETED, OVERDUE, CANCELLED
+    # status enums: PENDING, ONGOING, COMPLETED, OVERDUE, CANCELLED
     # ═══════════════════════════════════════════════════════════
     {
         "question": "inspection schedule for this month",
-        "sql": """SELECT *
+        "sql": """SELECT schedule_date, status
 FROM inspection_schedule
 WHERE schedule_date >= date_trunc('month', CURRENT_DATE)
   AND schedule_date < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'
 LIMIT 100;""",
-        "explanation": "Use date_trunc for month boundaries",
+        "explanation": "Use date_trunc for month boundaries, no SELECT *",
         "complexity": "medium"
     },
     {
         "question": "list all overdue scheduled inspections",
-        "sql": """SELECT *
+        "sql": """SELECT schedule_date, status
 FROM inspection_schedule
 WHERE status = 'OVERDUE'
 LIMIT 100;""",
-        "explanation": "Schedule status enum: PENDING, ONGOING, COMPLETED, OVERDUE, CANCELLED",
+        "explanation": "Schedule status: PENDING, ONGOING, COMPLETED, OVERDUE, CANCELLED",
         "complexity": "simple"
     },
     {
         "question": "list all pending scheduled inspections",
-        "sql": """SELECT *
+        "sql": """SELECT schedule_date, status
 FROM inspection_schedule
 WHERE status = 'PENDING'
 LIMIT 100;""",
@@ -444,18 +723,13 @@ LIMIT 100;""",
 ]
 
 
-# ═══════════════════════════════════════════════════════════════
-# Validation — uses EXPLAIN to check SQL before seeding
-# ═══════════════════════════════════════════════════════════════
-
 def validate_examples(examples):
     """Dry-run each SQL via EXPLAIN before seeding."""
     valid = []
     invalid = []
 
     for ex in examples:
-        # Skip examples with placeholder values like FORM_NAME, FACILITY_NAME
-        if any(p in ex["sql"] for p in ["FORM_NAME", "FACILITY_NAME", "FACILITY_NAME%"]):
+        if any(p in ex["sql"] for p in ["FORM_NAME", "FACILITY_NAME"]):
             valid.append(ex)
             print(f"⏭  SKIPPED (template): {ex['question']}")
             continue

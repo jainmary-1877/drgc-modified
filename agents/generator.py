@@ -26,7 +26,14 @@ CRITICAL RULES:
 1. Use ONLY the provided schema — never hallucinate table or column names
 2. Follow the logical plan exactly
 3. Return ONLY the final SQL query — no markdown, no explanations
-
+INSPECTION COLUMN RULES (never violate):
+- Score columns: inspection_score, gp_score — NEVER use rating, score, grade
+- Date columns: submitted_on, created_on, closed_on, start_date_time, end_date_time
+  — NEVER use report_date, inspection_date, date, created_date
+- Hours column: total_inspection_hours — NEVER use hours, duration
+- ID column: inspection_id (human readable) — NEVER use report_id
+- Always filter deleted = false on inspection_report
+- Always exclude status = 'DRAFT' when querying scores or hours
 JSONB RULES (never violate):
 - fb_question and fb_page have NO name/label/title columns
 - The ONLY tables with a name column are fb_forms and fb_modules
@@ -52,6 +59,7 @@ Write the SQL query:"""
             ("user", "Generate the SQL query:")
         ])
 
+
     def generate(self, state: AgentState, few_shot_examples=None) -> dict:
         """Generate SQL query from plan and schema."""
         logger.info("SQL GENERATOR: Creating SQL query from plan")
@@ -65,37 +73,31 @@ Write the SQL query:"""
             return {"error": "Cannot generate SQL without schema context", "should_retry": False}
 
         try:
+            # Build few-shot context as inline text injected into schema
+            few_shot_context = ""
             if few_shot_examples and settings.enable_dynamic_few_shot:
-                examples = [
-                    {"question": ex.get("question", ""), "sql": ex.get("sql", "")}
-                    for ex in few_shot_examples
-                ]
+                few_shot_context = "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                few_shot_context += "RELEVANT EXAMPLES — follow these exactly:\n"
+                few_shot_context += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                for ex in few_shot_examples:
+                    few_shot_context += f"\nQuestion: {ex.get('question', '')}\n"
+                    few_shot_context += f"SQL:\n{ex.get('sql', '')}\n"
+                few_shot_context += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                logger.info(f"Injecting {len(few_shot_examples)} few-shot examples inline")
 
-                example_prompt = ChatPromptTemplate.from_messages([
-                    ("human", "{question}"),
-                    ("ai", "{sql}")
-                ])
+            # Inject few-shot examples at the TOP of schema context
+            augmented_schema = few_shot_context + schema_context
 
-                few_shot_prompt = FewShotChatMessagePromptTemplate(
-                    example_prompt=example_prompt,
-                    examples=examples
-                )
+            # Always use simple prompt — no separate few-shot messages
+            chain = self.generation_prompt | self.llm
 
-                full_prompt = ChatPromptTemplate.from_messages([
-                    ("system", self.system_prompt),
-                    few_shot_prompt,
-                    ("user", "Generate the SQL query:")
-                ])
-
-                chain = full_prompt | self.llm
-            else:
-                chain = self.generation_prompt | self.llm
-            logger.debug(f"SCHEMA CONTEXT BEING SENT:\n{schema_context}")
+            logger.debug(f"SCHEMA CONTEXT BEING SENT:\n{augmented_schema}")
             logger.debug(f"PLAN BEING SENT:\n{plan}")
+
             response = chain.invoke({
                 "question": question,
                 "plan": plan,
-                "schema_context": schema_context
+                "schema_context": augmented_schema
             })
 
             sql = self._clean_sql(response.content)
@@ -111,7 +113,6 @@ Write the SQL query:"""
         except Exception as e:
             logger.error(f"SQL generation error: {e}")
             return {"error": f"SQL generation failed: {str(e)}", "should_retry": False}
-
     def _clean_sql(self, raw_sql: str) -> str:
         """Clean SQL output from LLM response."""
         # Remove markdown code blocks
