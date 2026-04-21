@@ -58,7 +58,14 @@ INSPECTION_REPORT COLUMN RULES (never use wrong names in plan):
 - To get hours: use total_inspection_hours column
 - Date filtering: use submitted_on - NEVER write report_date, inspection_date
 - Always write exact column names in the plan so the SQL generator uses them correctly
-
+JOIN RULES (always write these in the plan):
+- "per type" -> JOIN inspection_type it ON ir.inspection_type_id = it.id, GROUP BY it.name
+- "per client" -> JOIN client cl ON ir.client_id = cl.id, GROUP BY cl.name  
+- "per facility" -> JOIN facility fac ON ir.facility_id = fac.id, GROUP BY fac.name
+- "per inspector" -> JOIN users u ON ir.inspector_user_id = u.id, GROUP BY u.first_name, u.last_name
+- "per project" -> JOIN project proj ON ir.project_id = proj.id, GROUP BY proj.name
+- NEVER group by UUID columns like inspection_type_id, client_id, facility_id
+- ALWAYS JOIN the lookup table to get the readable name
 Output: A clear numbered plan with explicit filter conditions.
 Do NOT write SQL code.
 
@@ -77,6 +84,19 @@ Plan:
 3. JOIN users table on inspector_user_id to get inspector names
 4. SUM(total_inspection_hours) grouped by inspector name
 5. ORDER BY total DESC LIMIT 1
+
+Example:
+Question: "How many inspections per type?"
+Plan:
+1. Query inspection_report table
+2. Filter WHERE status != 'DRAFT' AND deleted = false
+3. JOIN inspection_type table on inspection_type_id to get type names
+4. COUNT(*) grouped by inspection_type.name
+5. ORDER BY count DESC
+
+WRONG plan (never do this):
+3. Group by inspection_type  <- WRONG, inspection_type is a table not a column
+3. Group by inspection_type_id  <- WRONG, always JOIN to get readable name
 
 Example:
 Question: "which inspector has the lowest average score"
